@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -57,6 +58,43 @@ func ReadinessHandler(w http.ResponseWriter, req *http.Request) {
 	w.Write([]byte("OK"))
 }
 
+// TODO
+func ValidateChirpTestHandler(w http.ResponseWriter, req *http.Request) {
+	type TestBody struct {
+		Body string `json:"body"`
+	}
+
+	var data TestBody
+
+	decoder := json.NewDecoder(req.Body)
+	err := decoder.Decode(&data)
+	if err != nil {
+		return
+	}
+}
+
+func JsonTestHandler(w http.ResponseWriter, req *http.Request) {
+
+	type TestBody struct {
+		Body string `json:"body"`
+	}
+
+	var data TestBody
+
+	decoder := json.NewDecoder(req.Body)
+	err := decoder.Decode(&data)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(fmt.Sprintf(`{"error": "%v"}`, err)))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(data.Body))
+	fmt.Printf("Data: \n%v", data)
+}
+
 func main() {
 
 	cfg := &apiConfig{}
@@ -72,7 +110,7 @@ func main() {
 	}
 	mux.HandleFunc("GET /admin/metrics", cfg.metricsHandler)
 	mux.HandleFunc("POST /admin/reset", cfg.resetHandler)
-
+	mux.HandleFunc(" /api/validate_chirp", JsonTestHandler)
 	fmt.Println("Server is running on port 8080...")
 
 	log.Fatal(s.ListenAndServe())
