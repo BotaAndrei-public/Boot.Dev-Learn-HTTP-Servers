@@ -1,16 +1,24 @@
 package main
 
 import (
+	"database/sql"
+	"os"
+
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
 	"sync/atomic"
+
+	"github.com/BotaAndrei-public/Boot.Dev-Learn-HTTP-Servers/internal/database"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	DB             *database.Queries
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -182,8 +190,20 @@ func JsonTestHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func main() {
+	godotenv.Load()
 
-	cfg := &apiConfig{}
+	//DB
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatal("Error DB: %v", err)
+	}
+
+	dbQueries := database.New(db)
+
+	cfg := &apiConfig{
+		DB: dbQueries,
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/app/", cfg.middlewareMetricsInc(http.StripPrefix("/app", http.HandlerFunc(mainHandler))))
