@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync/atomic"
 )
 
@@ -65,16 +66,16 @@ type IRW interface {
 
 // Universal Handler ResponseWriter
 type HRW struct {
-	ErrBody  string `json:"error,omitempty"`
-	TextBody string `json:"value"`
-	Valid    bool   `json:"valid,omitempty"`
+	ErrBody      string `json:"error,omitempty"`
+	TextBody     string `json:"value"`
+	Valid        bool   `json:"valid,omitempty"`
+	Cleaned_body string `json:"cleaned_body,omitempty"`
 }
 
 func (hrw HRW) ResponseWR(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	if hrw.Valid {
 		w.WriteHeader(200)
-		//	w.Write([]byte(fmt.Sprintf("%v", hrw.TextBody)))
 
 	} else {
 		w.WriteHeader(400)
@@ -86,7 +87,6 @@ func (hrw HRW) ResponseWR(w http.ResponseWriter) {
 		w.Write([]byte(err.Error()))
 	}
 	w.Write(dat)
-	//w.Write([]byte(fmt.Sprintf(`"%v": %v`, hrw.ErrBody, hrw.TextBody)))
 
 }
 
@@ -104,7 +104,8 @@ func ValidateChirpTestHandler(w http.ResponseWriter, req *http.Request) {
 	//Internal params / func helper
 	// HelpParamsFunc - HPF
 	type HPF struct {
-		MaxChar int
+		MaxChar  int
+		BanWords []string
 	}
 
 	//funcs HPF
@@ -114,10 +115,31 @@ func ValidateChirpTestHandler(w http.ResponseWriter, req *http.Request) {
 		}
 		return hpf.MaxChar
 	}
+	filterByKeywords := func(msg *string, filterList *[]string) string {
+		var splitList, c_splitList []string
+		var c_msg string
+		c_msg = *msg
+		c_splitList = strings.Split(*msg, " ")
+		c_msg = strings.ToLower(c_msg)
+		splitList = strings.Split(c_msg, " ")
+
+		for _, w := range *filterList {
+			for i, bw := range splitList {
+				if bw == w {
+					c_splitList[i] = "****"
+				}
+			}
+			//Print line by line
+			//fmt.Printf("#%v\n", splitList)
+			*msg = strings.Join(c_splitList, " ")
+		}
+		return ""
+	}
 
 	//func
 	var data JsonBody
 	var hpf HPF
+	hpf.BanWords = []string{"kerfuffle", "sharbert", "fornax"}
 
 	decoder := json.NewDecoder(req.Body)
 	err := decoder.Decode(&data)
@@ -130,7 +152,8 @@ func ValidateChirpTestHandler(w http.ResponseWriter, req *http.Request) {
 		resp := HRW{ErrBody: "error", TextBody: "Chirp is too long", Valid: false}
 		AutoResponseWR(w, resp)
 	} else {
-		resp := HRW{ErrBody: "Valid", TextBody: "true", Valid: true}
+		filterByKeywords(&data.Body, &hpf.BanWords)
+		resp := HRW{ErrBody: "Valid", TextBody: "true", Cleaned_body: data.Body, Valid: true}
 		AutoResponseWR(w, resp)
 	}
 
