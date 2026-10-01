@@ -32,6 +32,7 @@ type User struct {
 type apiConfig struct {
 	fileserverHits atomic.Int32
 	DB             *database.Queries
+	platform       string
 }
 
 // Methods for API GFG - Handlers
@@ -57,7 +58,26 @@ func (cfg *apiConfig) metricsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
+
+	if cfg.platform != "dev" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"error": "Forbidden!"}`))
+		return
+	}
+	// Set count users to 0
 	cfg.fileserverHits.Store(0)
+
+	err := cfg.DB.ResetUsers(r.Context())
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Colud not reset users"))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
 }
 
 func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
@@ -158,11 +178,12 @@ func AutoResponseWR(w http.ResponseWriter, R IRW) {
 	R.ResponseWR(w)
 }
 
-func ValidateChirpTestHandler(w http.ResponseWriter, req *http.Request) {
+func Chirp(w http.ResponseWriter, req *http.Request) {
 
 	//General struct for Json
 	type JsonBody struct {
-		Body string `json:"body"`
+		Body string    `json:"body"`
+		ID   uuid.UUID `json:"user_id"`
 	}
 
 	//Internal params / func helper
@@ -258,7 +279,8 @@ func main() {
 	dbQueries := database.New(db)
 
 	cfg := &apiConfig{
-		DB: dbQueries,
+		DB:       dbQueries,
+		platform: os.Getenv("PLATFORM"),
 	}
 
 	mux := http.NewServeMux()
@@ -272,7 +294,7 @@ func main() {
 	}
 	mux.HandleFunc("GET /admin/metrics", cfg.metricsHandler)
 	mux.HandleFunc("POST /admin/reset", cfg.resetHandler)
-	mux.HandleFunc(" /api/validate_chirp", ValidateChirpTestHandler)
+	mux.HandleFunc(" /api/chirps", Chirp)
 	mux.HandleFunc("POST /api/users", cfg.createUser)
 	fmt.Println("Server is running on port 8080...")
 
