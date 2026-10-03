@@ -27,6 +27,15 @@ type User struct {
 	Email     string    `json:"email"`
 }
 
+// / Struct Chirp
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserID    uuid.UUID `json:"user_id"`
+}
+
 // API-CFG
 
 type apiConfig struct {
@@ -174,11 +183,27 @@ func (hrw HRW) ResponseWR(w http.ResponseWriter) {
 
 }
 
+func (c Chirp) ResponseWR(w http.ResponseWriter) {
+
+	dat, err := json.Marshal(c)
+	if err != nil {
+		w.Header().Set("content-Type", "application/json")
+		w.WriteHeader(500)
+		return
+	}
+
+	//ALL GOOD in the HOOD
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	w.Write(dat)
+
+}
+
 func AutoResponseWR(w http.ResponseWriter, R IRW) {
 	R.ResponseWR(w)
 }
 
-func Chirp(w http.ResponseWriter, req *http.Request) {
+func (cfg *apiConfig) chirpHandler(w http.ResponseWriter, req *http.Request) {
 
 	//General struct for Json
 	type JsonBody struct {
@@ -233,14 +258,44 @@ func Chirp(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
+
+	//Validate length
 	if len(data.Body) > getMaxChar(hpf) {
 		resp := HRW{ErrBody: "error", TextBody: "Chirp is too long", Valid: false}
 		AutoResponseWR(w, resp)
-	} else {
-		filterByKeywords(&data.Body, &hpf.BanWords)
-		resp := HRW{ErrBody: "Valid", TextBody: "true", Cleaned_body: data.Body, Valid: true}
-		AutoResponseWR(w, resp)
+		return
 	}
+
+	//id Valid is TRUE
+	filterByKeywords(&data.Body, &hpf.BanWords)
+
+	//Save in DB
+	var params database.CreateChirpParams
+	params.Body = data.Body
+	params.UserID = data.ID
+
+	dbChirp, err := cfg.DB.CreateChirp(req.Context(), params)
+
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(fmt.Sprintf(`{"error": "Could not save chirp: %v"}`, err)))
+		return
+	}
+
+	chirpResponse := Chirp{
+		ID:        dbChirp.ID,
+		CreatedAt: dbChirp.CreatedAt,
+		UpdatedAt: dbChirp.UpdatedAt,
+		Body:      dbChirp.Body,
+		UserID:    dbChirp.UserID,
+	}
+
+	AutoResponseWR(w, chirpResponse)
+
+	//OLD way
+	//resp := HRW{ErrBody: "Valid", TextBody: "true", Cleaned_body: data.Body, Valid: true}
+	//AutoResponseWR(w, resp)
 
 }
 
@@ -294,7 +349,7 @@ func main() {
 	}
 	mux.HandleFunc("GET /admin/metrics", cfg.metricsHandler)
 	mux.HandleFunc("POST /admin/reset", cfg.resetHandler)
-	mux.HandleFunc(" /api/chirps", Chirp)
+	mux.HandleFunc(" /api/chirps", cfg.chirpHandler)
 	mux.HandleFunc("POST /api/users", cfg.createUser)
 	fmt.Println("Server is running on port 8080...")
 
