@@ -154,7 +154,7 @@ func ReadinessHandler(w http.ResponseWriter, req *http.Request) {
 
 // Universal Interface ResponseWriter
 type IRW interface {
-	ResponseWR(w http.ResponseWriter)
+	ResponseWR(w http.ResponseWriter, options ...any)
 }
 
 // Universal Handler ResponseWriter
@@ -165,7 +165,14 @@ type HRW struct {
 	Cleaned_body string `json:"cleaned_body,omitempty"`
 }
 
-func (hrw HRW) ResponseWR(w http.ResponseWriter) {
+//GET By ID Chirp from Chirps
+
+func AutoResponseWR(w http.ResponseWriter, R IRW, options ...any) {
+	R.ResponseWR(w, options...)
+}
+
+// GET Response as hrw
+func (hrw HRW) ResponseWR(w http.ResponseWriter, options ...any) {
 	w.Header().Set("Content-Type", "application/json")
 	if hrw.Valid {
 		w.WriteHeader(200)
@@ -183,26 +190,146 @@ func (hrw HRW) ResponseWR(w http.ResponseWriter) {
 
 }
 
-func (c Chirp) ResponseWR(w http.ResponseWriter) {
+// POST Create
+// FROM Chirps
+//func (c Chirp) ResponseWR(w http.ResponseWriter) {
+
+//	dat, err := json.Marshal(c)
+//	if err != nil {
+//		w.Header().Set("content-Type", "application/json")
+//		w.WriteHeader(500)
+//		return
+//	}
+
+//ALL GOOD in the HOOD
+//	w.Header().Set("Content-Type", "application/json")
+//	w.WriteHeader(http.StatusCreated)
+//	w.Write(dat)
+
+//}
+
+// GET/POST/PUT/DELETE GENERIC RESPONSE - SETTABLE BAD/GOOD HEADER & ERROR
+func (c Chirp) ResponseWR(w http.ResponseWriter, options ...any) {
+	w.Header().Set("Content-Type", "application/json")
+
+	goodHeader := 0
+	badHeader := 0
+	var customErr error
+
+	for _, opt := range options {
+		switch v := opt.(type) {
+
+		case int:
+			if v >= 200 && v < 300 {
+				goodHeader = v
+			} else if v >= 400 {
+				badHeader = v
+			}
+		case error:
+			customErr = v
+		case string:
+			customErr = fmt.Errorf("%s", v)
+		}
+	}
 
 	dat, err := json.Marshal(c)
 	if err != nil {
-		w.Header().Set("content-Type", "application/json")
-		w.WriteHeader(500)
+		if badHeader == 0 {
+			badHeader = 500
+		}
+		w.WriteHeader(badHeader)
+		if customErr != nil {
+			w.Write([]byte(fmt.Sprintf(`{"error":"%v"}`, customErr)))
+		} else {
+			w.Write([]byte(fmt.Sprintf(`{"error":"%v"}`, err)))
+		}
+		return
+	}
+	if goodHeader == 0 {
+		goodHeader = 200
+	}
+	w.WriteHeader(goodHeader)
+	w.Write(dat)
+	return
+}
+
+// GET All Chirps
+type listChitps []Chirp
+
+func (c listChitps) ResponseWR(w http.ResponseWriter, options ...any) {
+	data, err := json.Marshal(c)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"Could not marshal chirps"}`))
 		return
 	}
 
-	//ALL GOOD in the HOOD
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	w.Write(dat)
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
 
 }
 
-func AutoResponseWR(w http.ResponseWriter, R IRW) {
-	R.ResponseWR(w)
+// GET chirp by ID
+func (cfg *apiConfig) getChirpByID(w http.ResponseWriter, r *http.Request) {
+
+	chirpIDString := r.PathValue("chirpID")
+	chirpID, err := uuid.Parse(chirpIDString)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(fmt.Sprintf(`{"error": "Invalid chirp ID: %v"}`, err)))
+		return
+	}
+
+	dbChirps, err := cfg.DB.GetChirp(r.Context(), chirpID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(fmt.Sprintf(`{"error:": "Invalid chirp ID: %v"}`, err)))
+		return
+	}
+
+	foudChirp := Chirp{
+		ID:        dbChirps.ID,
+		CreatedAt: dbChirps.CreatedAt,
+		UpdatedAt: dbChirps.UpdatedAt,
+		Body:      dbChirps.Body,
+		UserID:    dbChirps.UserID,
+	}
+
+	AutoResponseWR(w, foudChirp, 404)
+
 }
 
+// GET chirps
+func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
+	dbChirps, err := cfg.DB.GetChirps(r.Context())
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(fmt.Sprintf(`{"error:" "Could not retrieve chirps: %v"}`, err)))
+		return
+	}
+	chirps := []Chirp{}
+	for _, c_next := range dbChirps {
+		chirp := Chirp{
+			ID:        c_next.ID,
+			CreatedAt: c_next.CreatedAt,
+			UpdatedAt: c_next.UpdatedAt,
+			Body:      c_next.Body,
+			UserID:    c_next.UserID,
+		}
+		chirps = append(chirps, chirp)
+	}
+
+	AutoResponseWR(w, listChitps(chirps))
+	return
+
+}
+
+// POST chirps
 func (cfg *apiConfig) chirpHandler(w http.ResponseWriter, req *http.Request) {
 
 	//General struct for Json
@@ -291,7 +418,8 @@ func (cfg *apiConfig) chirpHandler(w http.ResponseWriter, req *http.Request) {
 		UserID:    dbChirp.UserID,
 	}
 
-	AutoResponseWR(w, chirpResponse)
+	AutoResponseWR(w, chirpResponse, http.StatusCreated)
+	return
 
 	//OLD way
 	//resp := HRW{ErrBody: "Valid", TextBody: "true", Cleaned_body: data.Body, Valid: true}
@@ -351,6 +479,8 @@ func main() {
 	mux.HandleFunc("POST /admin/reset", cfg.resetHandler)
 	mux.HandleFunc(" /api/chirps", cfg.chirpHandler)
 	mux.HandleFunc("POST /api/users", cfg.createUser)
+	mux.HandleFunc("GET /api/chirps", cfg.getChirps)
+	mux.HandleFunc("GET /api/chirps/{chirpID}", cfg.getChirpByID)
 	fmt.Println("Server is running on port 8080...")
 
 	log.Fatal(s.ListenAndServe())
