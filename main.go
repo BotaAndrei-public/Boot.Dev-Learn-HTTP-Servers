@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/BotaAndrei-public/Boot.Dev-Learn-HTTP-Servers/internal/auth"
 	"github.com/BotaAndrei-public/Boot.Dev-Learn-HTTP-Servers/internal/database"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -89,13 +90,17 @@ func (cfg *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
+// CreateUser
 func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
-	decoder := json.NewDecoder(r.Body)
+	var params_send database.CreateUserParams
 	params := parameters{}
+
+	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(&params)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -104,7 +109,18 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dbUser, err := cfg.DB.CreateUser(r.Context(), params.Email)
+	hashedPassword, err := auth.HashPassword(params.Password)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(fmt.Sprintf(`{"error":"%v"}`, err)))
+		return
+	}
+
+	params_send.Email = params.Email
+	params_send.HashedPassword = hashedPassword
+
+	dbUser, err := cfg.DB.CreateUser(r.Context(), params_send)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -129,6 +145,11 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	w.Write(data)
+}
+
+// Login User TODO
+func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
+
 }
 
 func mainHandler(w http.ResponseWriter, req *http.Request) {
@@ -481,6 +502,7 @@ func main() {
 	mux.HandleFunc("POST /api/users", cfg.createUser)
 	mux.HandleFunc("GET /api/chirps", cfg.getChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", cfg.getChirpByID)
+	mux.HandleFunc("PSOT /api/login")
 	fmt.Println("Server is running on port 8080...")
 
 	log.Fatal(s.ListenAndServe())
