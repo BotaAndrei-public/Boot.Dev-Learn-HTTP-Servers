@@ -149,7 +149,54 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 
 // Login User TODO
 func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
 
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(fmt.Sprintf(`{"error": "%v"}`, err)))
+		return
+	}
+
+	dbUser, err := cfg.DB.GetUserByEmail(r.Context(), params.Email)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error": "Incorrect email or password"}`))
+		return // <-- AICI LIPSEA return!
+	}
+
+	match, err := auth.CheckPasswordHash(params.Password, dbUser.HashedPassword)
+	if err != nil || !match {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error": "Incorrect email or password"}`))
+		return
+	}
+
+	responseUser := User{
+		ID:        dbUser.ID,
+		CreatedAt: dbUser.CreatedAt,
+		UpdatedAt: dbUser.UpdatedAt,
+		Email:     dbUser.Email,
+	}
+
+	data, err := json.Marshal(responseUser)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
 }
 
 func mainHandler(w http.ResponseWriter, req *http.Request) {
@@ -502,7 +549,7 @@ func main() {
 	mux.HandleFunc("POST /api/users", cfg.createUser)
 	mux.HandleFunc("GET /api/chirps", cfg.getChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", cfg.getChirpByID)
-	mux.HandleFunc("PSOT /api/login")
+	mux.HandleFunc("POST /api/login", cfg.loginHandler)
 	fmt.Println("Server is running on port 8080...")
 
 	log.Fatal(s.ListenAndServe())
